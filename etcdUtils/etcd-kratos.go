@@ -126,7 +126,7 @@ func (receiver *EtcdTraefik) registerOneProtocol(endpoints []string) error {
 	if strings.HasPrefix(address, "grpc://") {
 		k, v = receiver.getGrpcRegisterKv(endpoints[0])
 
-	} else if strings.HasPrefix(address, "http://") {
+	} else {
 		k, v = receiver.getHttpRegisterKv(endpoints[0])
 	}
 
