@@ -4,10 +4,13 @@ import (
 	"context"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/dlclark/regexp2"
 	"github.com/go-kratos/kratos/v2"
+	"github.com/go-kratos/kratos/v2/log"
 	EtcdClientv3 "go.etcd.io/etcd/client/v3"
+	"go.etcd.io/etcd/client/v3/concurrency"
 )
 
 const (
@@ -30,8 +33,22 @@ func NewEtcdTraefik(client *EtcdClientv3.Client, serviceName string) *EtcdTraefi
 }
 
 func (receiver *EtcdTraefik) RegisterTraefik(app *kratos.App) error {
+	//每个协程都需要创建一个lock对象
+	session, _ := concurrency.NewSession(receiver.client,
+		concurrency.WithTTL(15),
+	)
+	defer session.Close()
 
-	//获取所有当前服务
+	//创建锁
+	locker := concurrency.NewMutex(session, "/lockRegisterNum")
+	timeout, _ := context.WithTimeout(context.Background(), time.Second*60)
+	err := locker.Lock(timeout)
+	if err != nil {
+		log.Fatal("超时启动，请重新启动\n")
+		return err
+	}
+
+	//获取所有当前服务，这里需要加锁，因为可能多个服务一起移动
 	selfPrefix := "traefik/http/services/" + receiver.ServiceName
 	getNum, err := receiver.client.Get(context.Background(), selfPrefix, EtcdClientv3.WithPrefix())
 	if err != nil {
@@ -64,6 +81,11 @@ func (receiver *EtcdTraefik) RegisterTraefik(app *kratos.App) error {
 
 	//我们直接把最大序号+1即可
 	receiver.ServiceNum = maxKvNum + 1
+	err = locker.Unlock(timeout)
+	if err != nil {
+		log.Fatal("解锁失败，程序退出异常\n")
+		return err
+	}
 
 	//获取租约id，获取当前服务的租约ID，所以我们要把当前服务的id传递过来
 	//这是kratos的服务，并不是我们自己的
