@@ -7,6 +7,7 @@ go get -u "github.com/nogolang/kratos-traefik-etcd/etcdUtils"
 
 
 在执行完kratos的的run方法之后(注意用协程)使用etcdUtils
+此时会向etcd同时注册一个可以被traefik识别的kv，并且租约和kratos注册的kv保持一致，这样程序结束后会自动从etcd里取消kv
 
 ```
 go func() {
