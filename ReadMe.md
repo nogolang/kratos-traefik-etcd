@@ -1,9 +1,7 @@
 
 
 **引入包**
-
-go get -u "github.com/nogolang/kratos-traefik-etcd/etcdUtils"
-
+import "github.com/nogolang/kratos-traefik-etcd/etcdUtils"
 
 
 在执行完kratos的的run方法之后(注意用协程)使用etcdUtils
