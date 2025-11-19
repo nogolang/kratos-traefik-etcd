@@ -32,7 +32,7 @@ func NewEtcdTraefik(client *EtcdClientv3.Client, serviceName string) *EtcdTraefi
 	return &EtcdTraefik{client: client, ServiceName: serviceName}
 }
 
-func (receiver *EtcdTraefik) RegisterTraefik(app *kratos.App) error {
+func (receiver *EtcdTraefik) RegisterTraefik(app kratos.AppInfo) error {
 	//每个协程都需要创建一个lock对象
 	session, _ := concurrency.NewSession(receiver.client,
 		concurrency.WithTTL(15),
@@ -79,7 +79,8 @@ func (receiver *EtcdTraefik) RegisterTraefik(app *kratos.App) error {
 		}
 	}
 
-	//我们直接把最大序号+1即可
+	//我们直接把最大序号+1即可，但是可能会出现前一个服务停止后，key还没有删除，就启动了新的服务
+	//这样这里就会是2，但是也不要紧，因为traefik会自动负载均衡，1，2这些只是数字
 	receiver.ServiceNum = maxKvNum + 1
 	err = locker.Unlock(timeout)
 	if err != nil {
