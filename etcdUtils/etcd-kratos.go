@@ -1,7 +1,6 @@
 package etcdUtils
 
 import (
-	"context"
 	"strconv"
 	"strings"
 	"time"
@@ -11,6 +10,7 @@ import (
 	"github.com/go-kratos/kratos/v2/log"
 	EtcdClientv3 "go.etcd.io/etcd/client/v3"
 	"go.etcd.io/etcd/client/v3/concurrency"
+	"golang.org/x/net/context"
 )
 
 const (
@@ -21,7 +21,7 @@ type EtcdTraefik struct {
 	client      *EtcdClientv3.Client
 	ServiceName string
 
-	//服务数量和名称
+	//服务数量
 	ServiceNum int
 
 	//kratos服务的租约id
@@ -40,7 +40,7 @@ func (receiver *EtcdTraefik) RegisterTraefik(app kratos.AppInfo) error {
 	defer session.Close()
 
 	//创建锁
-	locker := concurrency.NewMutex(session, "/lockRegisterNum")
+	locker := concurrency.NewMutex(session, "/lockRegisterNum/"+receiver.ServiceName)
 	timeout, _ := context.WithTimeout(context.Background(), time.Second*60)
 	err := locker.Lock(timeout)
 	if err != nil {
