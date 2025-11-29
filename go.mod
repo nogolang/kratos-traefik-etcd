@@ -3,9 +3,10 @@ module github.com/nogolang/kratos-traefik-etcd
 go 1.25.1
 
 require (
-	github.com/dlclark/regexp2 v1.11.5
 	github.com/go-kratos/kratos/v2 v2.9.1
+	github.com/pkg/errors v0.9.1
 	go.etcd.io/etcd/client/v3 v3.6.5
+	golang.org/x/net v0.38.0
 )
 
 require (
@@ -20,7 +21,6 @@ require (
 	go.etcd.io/etcd/client/pkg/v3 v3.6.5 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.27.0 // indirect
-	golang.org/x/net v0.38.0 // indirect
 	golang.org/x/sync v0.12.0 // indirect
 	golang.org/x/sys v0.31.0 // indirect
 	golang.org/x/text v0.23.0 // indirect

@@ -5,9 +5,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dlclark/regexp2"
 	"github.com/go-kratos/kratos/v2"
 	"github.com/go-kratos/kratos/v2/log"
+	"github.com/pkg/errors"
 	EtcdClientv3 "go.etcd.io/etcd/client/v3"
 	"go.etcd.io/etcd/client/v3/concurrency"
 	"golang.org/x/net/context"
@@ -21,7 +21,7 @@ type EtcdTraefik struct {
 	client      *EtcdClientv3.Client
 	ServiceName string
 
-	//服务数量
+	//服务的序号
 	ServiceNum int
 
 	//kratos服务的租约id
@@ -48,40 +48,36 @@ func (receiver *EtcdTraefik) RegisterTraefik(app kratos.AppInfo) error {
 		return err
 	}
 
-	//获取所有当前服务，这里需要加锁，因为可能多个服务一起移动
-	selfPrefix := "traefik/http/services/" + receiver.ServiceName
-	getNum, err := receiver.client.Get(context.Background(), selfPrefix, EtcdClientv3.WithPrefix())
+	//序号
+	numPrefix := "/register/num"
+
+	res, err := receiver.client.Get(context.Background(), numPrefix, EtcdClientv3.WithPrefix())
 	if err != nil {
-		return err
+		return errors.Wrap(err, "获取序号失败")
 	}
 
-	regStr := selfPrefix + "/loadbalancer/servers/" + "(.+)" + "/url"
-	compile, _ := regexp2.Compile(regStr, regexp2.IgnoreCase)
-
-	//获取到最大的序号
-	var maxKvNum int
-	for _, kv := range getNum.Kvs {
-		match, err := compile.FindStringMatch(string(kv.Key))
+	var num int
+	if len(res.Kvs) == 0 {
+		receiver.ServiceNum = 1
+	} else {
+		num, err = strconv.Atoi(string(res.Kvs[0].Value))
 		if err != nil {
-			return err
-		}
-		for match != nil {
-
-			//获取到数字
-			atoi, err := strconv.Atoi(match.GroupByNumber(1).String())
-			if err != nil {
-				return err
-			}
-			if atoi > maxKvNum {
-				maxKvNum = atoi
-			}
-			match, _ = compile.FindNextMatch(match)
+			return errors.Wrap(err, "转换序号失败")
 		}
 	}
 
-	//我们直接把最大序号+1即可，但是可能会出现前一个服务停止后，key还没有删除，就启动了新的服务
-	//这样这里就会是2，但是也不要紧，因为traefik会自动负载均衡，1，2这些只是数字
-	receiver.ServiceNum = maxKvNum + 1
+	//如果已经到了1023，那么就重置
+	if num == 1023 {
+		receiver.ServiceNum = 1
+	} else {
+		receiver.ServiceNum = num + 1
+	}
+
+	//设置回去
+	_, err = receiver.client.Put(timeout, numPrefix, strconv.Itoa(receiver.ServiceNum))
+	if err != nil {
+		return errors.Wrap(err, "设置序号失败")
+	}
 	err = locker.Unlock(timeout)
 	if err != nil {
 		log.Fatal("解锁失败，程序退出异常\n")
