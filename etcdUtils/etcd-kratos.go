@@ -48,8 +48,17 @@ func (receiver *EtcdTraefik) RegisterTraefik(app kratos.AppInfo) error {
 		return err
 	}
 
-	//序号
-	numPrefix := "/register/num"
+	//获取租约id，获取当前服务的租约ID，然后把我们的num赋予租约id，这样num就不会一直存在
+	kratosPrefix := "/microservices/"
+	prefix := kratosPrefix + receiver.ServiceName
+	getLeaseId, err := receiver.client.Get(context.Background(), prefix+"/"+app.ID(), EtcdClientv3.WithPrefix())
+	if err != nil {
+		return err
+	}
+	receiver.LeaseId = EtcdClientv3.LeaseID(getLeaseId.Kvs[0].Lease)
+
+	//序号前缀
+	numPrefix := "/registerNum/" + receiver.ServiceName
 
 	res, err := receiver.client.Get(context.Background(), numPrefix, EtcdClientv3.WithPrefix())
 	if err != nil {
@@ -73,8 +82,8 @@ func (receiver *EtcdTraefik) RegisterTraefik(app kratos.AppInfo) error {
 		receiver.ServiceNum = num + 1
 	}
 
-	//设置回去
-	_, err = receiver.client.Put(timeout, numPrefix, strconv.Itoa(receiver.ServiceNum))
+	//设置回去，附带租约id
+	_, err = receiver.client.Put(timeout, numPrefix, strconv.Itoa(receiver.ServiceNum), EtcdClientv3.WithLease(receiver.LeaseId))
 	if err != nil {
 		return errors.Wrap(err, "设置序号失败")
 	}
@@ -83,17 +92,6 @@ func (receiver *EtcdTraefik) RegisterTraefik(app kratos.AppInfo) error {
 		log.Fatal("解锁失败，程序退出异常\n")
 		return err
 	}
-
-	//获取租约id，获取当前服务的租约ID，所以我们要把当前服务的id传递过来
-	//这是kratos的服务，并不是我们自己的
-	//获取kratos服务的数量
-	kratosPrefix := "/microservices/"
-	prefix := kratosPrefix + receiver.ServiceName
-	getLeaseId, err := receiver.client.Get(context.Background(), prefix+"/"+app.ID(), EtcdClientv3.WithPrefix())
-	if err != nil {
-		return err
-	}
-	receiver.LeaseId = EtcdClientv3.LeaseID(getLeaseId.Kvs[0].Lease)
 
 	//获取endpoint端口地址，有可能只注册了一个http或者一个grpc
 	//如果只有1个，那么里面需要判断是grpc还是http
