@@ -3,13 +3,9 @@ package etcdUtils
 import (
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/go-kratos/kratos/v2"
-	"github.com/go-kratos/kratos/v2/log"
-	"github.com/pkg/errors"
 	EtcdClientv3 "go.etcd.io/etcd/client/v3"
-	"go.etcd.io/etcd/client/v3/concurrency"
 	"golang.org/x/net/context"
 )
 
@@ -22,33 +18,18 @@ type EtcdTraefik struct {
 	ServiceName string
 
 	//服务的序号
-	ServiceNum int
+	NodeNum int
 
 	//kratos服务的租约id
 	LeaseId EtcdClientv3.LeaseID
 }
 
-func NewEtcdTraefik(client *EtcdClientv3.Client, serviceName string) *EtcdTraefik {
-	return &EtcdTraefik{client: client, ServiceName: serviceName}
+func NewEtcdTraefik(client *EtcdClientv3.Client, serviceName string, nodeNum int) *EtcdTraefik {
+	return &EtcdTraefik{client: client, ServiceName: serviceName, NodeNum: nodeNum}
 }
 
 func (receiver *EtcdTraefik) RegisterTraefik(app kratos.AppInfo) error {
-	//每个协程都需要创建一个lock对象
-	session, _ := concurrency.NewSession(receiver.client,
-		concurrency.WithTTL(15),
-	)
-	defer session.Close()
-
-	//创建锁
-	locker := concurrency.NewMutex(session, "/lockRegisterNum/"+receiver.ServiceName)
-	timeout, _ := context.WithTimeout(context.Background(), time.Second*60)
-	err := locker.Lock(timeout)
-	if err != nil {
-		log.Fatal("超时启动，请重新启动\n")
-		return err
-	}
-
-	//获取租约id，获取当前服务的租约ID，然后把我们的num赋予租约id，这样num就不会一直存在
+	//获取租约id，给traefik kv 也用一样的租约，这样就能一起删除
 	kratosPrefix := "/microservices/"
 	prefix := kratosPrefix + receiver.ServiceName
 	getLeaseId, err := receiver.client.Get(context.Background(), prefix+"/"+app.ID(), EtcdClientv3.WithPrefix())
@@ -56,42 +37,6 @@ func (receiver *EtcdTraefik) RegisterTraefik(app kratos.AppInfo) error {
 		return err
 	}
 	receiver.LeaseId = EtcdClientv3.LeaseID(getLeaseId.Kvs[0].Lease)
-
-	//序号前缀
-	numPrefix := "/registerNum/" + receiver.ServiceName
-
-	res, err := receiver.client.Get(context.Background(), numPrefix, EtcdClientv3.WithPrefix())
-	if err != nil {
-		return errors.Wrap(err, "获取序号失败")
-	}
-
-	var num int
-	if len(res.Kvs) == 0 {
-		receiver.ServiceNum = 1
-	} else {
-		num, err = strconv.Atoi(string(res.Kvs[0].Value))
-		if err != nil {
-			return errors.Wrap(err, "转换序号失败")
-		}
-	}
-
-	//如果已经到了1023，那么就重置
-	if num == 1023 {
-		receiver.ServiceNum = 1
-	} else {
-		receiver.ServiceNum = num + 1
-	}
-
-	//设置回去，附带租约id
-	_, err = receiver.client.Put(timeout, numPrefix, strconv.Itoa(receiver.ServiceNum), EtcdClientv3.WithLease(receiver.LeaseId))
-	if err != nil {
-		return errors.Wrap(err, "设置序号失败")
-	}
-	err = locker.Unlock(timeout)
-	if err != nil {
-		log.Fatal("解锁失败，程序退出异常\n")
-		return err
-	}
 
 	//获取endpoint端口地址，有可能只注册了一个http或者一个grpc
 	//如果只有1个，那么里面需要判断是grpc还是http
@@ -157,8 +102,8 @@ func (receiver *EtcdTraefik) registerManyProtocol(endpoints []string) error {
 
 // 获取http注册key和value
 func (receiver *EtcdTraefik) getHttpRegisterKv(address string) (string, string) {
-	//替换掉数量,这里要-1，从0开始
-	replace := strings.Replace(TraefikRuleName, "NumReplace", strconv.Itoa(receiver.ServiceNum), -1)
+	//替换掉数量
+	replace := strings.Replace(TraefikRuleName, "NumReplace", strconv.Itoa(receiver.NodeNum), -1)
 
 	//替换掉名称
 	replace = strings.Replace(replace, "ServiceNameReplace", receiver.ServiceName, -1)
@@ -167,8 +112,8 @@ func (receiver *EtcdTraefik) getHttpRegisterKv(address string) (string, string) 
 }
 
 func (receiver *EtcdTraefik) getGrpcRegisterKv(address string) (string, string) {
-	//替换掉数量,这里要-1，从0开始
-	replace := strings.Replace(TraefikRuleName, "NumReplace", strconv.Itoa(receiver.ServiceNum), -1)
+	//替换掉数量
+	replace := strings.Replace(TraefikRuleName, "NumReplace", strconv.Itoa(receiver.NodeNum), -1)
 
 	//替换掉名称,我们的服务名称是固定形式，如果是grpc的服务，则会加上grpc，比如 user-service-grpc
 	//这个是注册到traefik里的，用于区分
